@@ -9,7 +9,7 @@
 module.exports = {
   apps: [
     {
-      name: "wsm-action-tracker",
+      name: "wsm",
       script: "node_modules/next/dist/bin/next",
       args: "start -p 3018",
       cwd: __dirname,
