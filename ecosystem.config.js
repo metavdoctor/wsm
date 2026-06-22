@@ -5,13 +5,13 @@
 //   pm2 start ecosystem.config.js
 //   pm2 save
 //
-// Change PORT below if 3000 is already used by another app on the server.
+// Change PORT below if 3018 is already used by another app on the server.
 module.exports = {
   apps: [
     {
       name: "wsm-action-tracker",
       script: "node_modules/next/dist/bin/next",
-      args: "start -p 3000",
+      args: "start -p 3018",
       cwd: __dirname,
       instances: 1,
       exec_mode: "fork",
@@ -19,7 +19,7 @@ module.exports = {
       max_restarts: 10,
       env: {
         NODE_ENV: "production",
-        PORT: 3000,
+        PORT: 3018,
       },
     },
   ],

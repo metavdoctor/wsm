@@ -1,5 +1,5 @@
 // WSM Action Tracker — Prisma schema
-// Datasource: PostgreSQL (local dev: localhost:5432/wsm_action_tracker)
+// Datasource: PostgreSQL (local dev: localhost:5432/wsm)
 
 generator client {
   provider = "prisma-client-js"
