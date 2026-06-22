@@ -3,38 +3,31 @@ import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
 import Credentials from "next-auth/providers/credentials";
 
 // Kept Prisma-free so it stays edge-safe for middleware (proxy.ts).
-// Role is derived from the ADMIN_EMAILS env allowlist; access is gated by
-// ALLOWED_EMAIL_DOMAIN. User persistence (DB) is not needed for v1.
-
-const adminEmails = (process.env.ADMIN_EMAILS ?? "")
-  .split(",")
-  .map((e) => e.trim().toLowerCase())
-  .filter(Boolean);
-
-const allowedDomain = (process.env.ALLOWED_EMAIL_DOMAIN ?? "")
-  .trim()
-  .toLowerCase();
-
-function roleFor(email?: string | null): "ADMIN" | "MEMBER" {
-  if (email && adminEmails.includes(email.toLowerCase())) return "ADMIN";
-  return "MEMBER";
-}
-
-function emailAllowed(email?: string | null): boolean {
-  if (!email) return false;
-  if (!allowedDomain) return true;
-  return email.toLowerCase().endsWith(`@${allowedDomain}`);
-}
+// Access policy: ANY user who authenticates via Azure may enter — no domain
+// allowlist, no whitelist. Everyone gets full access (ADMIN), so there is no
+// role-based gating in this app.
 
 const providers: NextAuthConfig["providers"] = [];
 
 // Real corporate SSO — enabled when Azure env vars are set.
-if (process.env.AZURE_AD_CLIENT_ID && process.env.AZURE_AD_TENANT_ID) {
+// Explicit endpoints (mirrors the working config in the promisys app on the
+// HCML tenant) instead of the issuer/discovery shorthand.
+if (
+  process.env.AZURE_AD_CLIENT_ID &&
+  process.env.AZURE_AD_CLIENT_SECRET &&
+  process.env.AZURE_AD_TENANT_ID
+) {
+  const tenantId = process.env.AZURE_AD_TENANT_ID;
   providers.push(
     MicrosoftEntraID({
       clientId: process.env.AZURE_AD_CLIENT_ID,
       clientSecret: process.env.AZURE_AD_CLIENT_SECRET,
-      issuer: `https://login.microsoftonline.com/${process.env.AZURE_AD_TENANT_ID}/v2.0`,
+      authorization: {
+        url: `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize`,
+        params: { scope: "openid profile email" },
+      },
+      token: `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
+      userinfo: "https://graph.microsoft.com/oidc/userinfo",
     })
   );
 }
@@ -64,23 +57,23 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   providers,
   pages: { signIn: "/login" },
   callbacks: {
-    async signIn({ user }) {
-      // Dev bypass always allowed; otherwise enforce domain allowlist.
-      if (process.env.DEV_AUTH_BYPASS === "1") return true;
-      return emailAllowed(user?.email);
+    async signIn() {
+      // Open access: anyone who authenticates (Azure or dev bypass) may enter.
+      return true;
     },
     async jwt({ token, user }) {
       if (user) {
         token.email = user.email ?? token.email;
         token.name = user.name ?? token.name;
-        token.role = roleFor(user.email);
+        // No role-based access in this app — everyone gets full access.
+        token.role = "ADMIN";
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
         session.user.id = (token.sub as string) ?? session.user.id;
-        session.user.role = (token.role as "ADMIN" | "MEMBER") ?? "MEMBER";
+        session.user.role = (token.role as "ADMIN" | "MEMBER") ?? "ADMIN";
       }
       return session;
     },
