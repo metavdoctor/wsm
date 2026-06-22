@@ -1,0 +1,190 @@
+// WSM Action Tracker — Prisma schema
+// Datasource: PostgreSQL (local dev: localhost:5432/wsm_action_tracker)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Auth (next-auth v5 + @auth/prisma-adapter) + app role
+// ---------------------------------------------------------------------------
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  role          Role      @default(MEMBER)
+  createdAt     DateTime  @default(now())
+
+  accounts      Account[]
+  sessions      Session[]
+  actionUpdates ActionUpdate[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ---------------------------------------------------------------------------
+// Master data (managed dropdowns)
+// ---------------------------------------------------------------------------
+
+// Department doubles as "Party" for PIC (e.g. "ManCom Secretary" is not a real
+// department but appears as a PIC in the source data).
+model Department {
+  id     String  @id @default(cuid())
+  name   String  @unique
+  active Boolean @default(true)
+  order  Int     @default(0)
+
+  presentingFor ActionItem[] @relation("PresentingDept")
+  picFor        ActionItem[] @relation("ActionPics")
+}
+
+model ActionType {
+  id     String  @id @default(cuid())
+  name   String  @unique
+  active Boolean @default(true)
+  order  Int     @default(0)
+
+  actions ActionItem[]
+}
+
+model Priority {
+  id     String  @id @default(cuid())
+  name   String  @unique
+  rank   Int     @default(0) // lower = higher priority
+  color  String? // hex for badge
+  active Boolean @default(true)
+
+  actions ActionItem[]
+}
+
+model Status {
+  id       String  @id @default(cuid())
+  name     String  @unique
+  isClosed Boolean @default(false)
+  color    String?
+  order    Int     @default(0)
+
+  actions ActionItem[]
+}
+
+// ---------------------------------------------------------------------------
+// Core: Meeting 1 -> N ActionItem
+// ---------------------------------------------------------------------------
+
+enum MeetingType {
+  WSM // Weekly Staff Meeting
+  GM_DECISION // Decision-Making Meeting with GM
+  AD_HOC // Urgent/Emergency ad hoc meeting
+}
+
+model Meeting {
+  id        String       @id @default(cuid())
+  date      DateTime
+  title     String?
+  type      MeetingType  @default(WSM)
+  createdAt DateTime     @default(now())
+  actions   ActionItem[]
+
+  @@index([date])
+}
+
+model ActionItem {
+  id    String @id @default(cuid())
+  seqNo Int? // "No." column within a meeting
+
+  meetingId String
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  presentingDeptId String?
+  presentingDept   Department? @relation("PresentingDept", fields: [presentingDeptId], references: [id])
+
+  directionFrom String? // "Direction/Recommendation From"
+  topic         String?
+  description   String  @db.Text // "Action Item"
+
+  typeId String?
+  type   ActionType? @relation(fields: [typeId], references: [id])
+
+  priorityId String?
+  priority   Priority? @relation(fields: [priorityId], references: [id])
+
+  // PIC: many-to-many to Department/Party
+  pics Department[] @relation("ActionPics")
+
+  userUpdate     String? @db.Text // "User Update"
+  targetDate     DateTime? // parsed; null when only fuzzy text given
+  targetDateText String? // original e.g. "Q1 2026", "W2 March 26"
+
+  statusId String
+  status   Status @relation(fields: [statusId], references: [id])
+
+  remarks String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  updates ActionUpdate[]
+
+  @@index([meetingId])
+  @@index([statusId])
+  @@index([targetDate])
+}
+
+// Optional progress-log extension (schema ready; UI added later if needed).
+model ActionUpdate {
+  id           String     @id @default(cuid())
+  actionItemId String
+  actionItem   ActionItem @relation(fields: [actionItemId], references: [id], onDelete: Cascade)
+  body         String     @db.Text
+  createdById  String?
+  createdBy    User?      @relation(fields: [createdById], references: [id])
+  createdAt    DateTime   @default(now())
+
+  @@index([actionItemId])
+}
